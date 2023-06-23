@@ -3,7 +3,6 @@ using Newtonsoft.Json;
 using OpenQA.Selenium;
 using OpenQA.Selenium.Chrome;
 using System;
-using System.Collections.Generic;
 using System.IO;
 using System.Threading.Tasks;
 
@@ -20,7 +19,6 @@ namespace Open_for_work_scrapping
 
             string username = configuration.GetValue<string>("Username")!;
             string password = configuration.GetValue<string>("Password")!;
-            string myNetwork = configuration.GetValue<string>("MyNetwork")!;
             string[] proxyIPAddresses = configuration.GetSection("ProxyIPAddresses").Get<string[]>();
 
             var proxy = new Proxy();
@@ -30,20 +28,115 @@ namespace Open_for_work_scrapping
             ChromeOptions options = new ChromeOptions();
             options.AddArgument("--headless");
             options.Proxy = proxy;
-            driver = new ChromeDriver(options);
+            driver = new ChromeDriver(@"D:\Download\chromedriver");
+
             driver.Navigate().GoToUrl("https://www.linkedin.com/login");
+
+            // Login
             driver.FindElement(By.Id("username")).SendKeys(username);
             driver.FindElement(By.Id("password")).SendKeys(password);
             driver.FindElement(By.XPath("//button[@type='submit']")).Click();
-            driver.Navigate().GoToUrl(myNetwork);
             System.Threading.Thread.Sleep(3000);
 
+            Console.WriteLine("Select an option:");
+            Console.WriteLine("1. Scrape open to work profiles");
+            Console.WriteLine("2. Scrape Company profiles");
+            Console.WriteLine("3. Scrape network profiles");
+            string option = Console.ReadLine()!;
+
+            switch (option)
+            {
+                case "1":
+                    string profileSearchUrl = configuration.GetValue<string>("ProfileSearchUrl")!;
+                    await ScrapeProfiles(driver, profileSearchUrl);
+                    break;
+                case "2":
+                    string company = configuration.GetValue<string>("Company")!;
+                    await ScrapeProfiles(driver, company);
+                    break;
+                case "3":
+                    string myNetworkUrl = configuration.GetValue<string>("MyNetwork")!;
+                    await ScrappedNetworkProfile(driver, myNetworkUrl);
+                    break;
+                default:
+                    Console.WriteLine("Invalid option selected.");
+                    break;
+            }
+
+            driver.Close();
+            driver.Quit();
+        }
+
+
+        static async Task ScrapeProfiles(IWebDriver driver, string url)
+        {
+            List<ProfileData> profilesdata = new List<ProfileData>();
+            driver.Navigate().GoToUrl(url);
+            System.Threading.Thread.Sleep(3000);
+
+            int profilesToScrape = 9;
+            int totalPage = 50;
+
+            for (int j = 0; j < totalPage; j++)
+            {
+                for (int i = 0; i <= profilesToScrape; i++)
+                {
+                    System.Threading.Thread.Sleep(2000);
+                    // Go to the next user's profile
+                    driver.FindElements(By.CssSelector(".entity-result__primary-subtitle.t-14.t-black.t-normal"))[i].Click();
+                    System.Threading.Thread.Sleep(2000);
+                    ProfileData profileData = new ProfileData();
+                    profileData.ProfilePicUrl = FindProfilePictureUrl(driver);
+                    profileData.BackgroundCoverImageUrl = FindBackgroundCoverImageUrl(driver);
+                    profileData.FullName = FindElementText(driver, By.CssSelector(".text-heading-xlarge.inline.t-24.v-align-middle.break-words"));
+                    profileData.Headline = FindElementText(driver, By.CssSelector(".text-body-medium.break-words"));
+                    profileData.FullAddress = FindElementText(driver, By.CssSelector(".text-body-small.inline.t-black--light.break-words"));
+                    profilesdata.Add(profileData);
+                    Console.WriteLine("Profile Picture URL: " + profileData.ProfilePicUrl);
+                    Console.WriteLine("Background Cover Image URL: " + profileData.BackgroundCoverImageUrl);
+                    Console.WriteLine("Full Name: " + profileData.FullName);
+                    Console.WriteLine("Headline: " + profileData.Headline);
+                    Console.WriteLine("Full Address: " + profileData.FullAddress);
+                    Console.WriteLine();
+
+                    // Go back to search results
+                    driver.Navigate().Back();
+                    System.Threading.Thread.Sleep(2000);
+                }
+
+                // Click on the next page button
+                IWebElement nextButton = driver.FindElement(By.CssSelector(".artdeco-pagination__button--next"));
+                if (nextButton.GetAttribute("disabled") == "true")
+                {
+                    break;
+                }
+                else
+                {
+                    nextButton.Click();
+                    System.Threading.Thread.Sleep(2000);
+                }
+            }
+            string json = JsonConvert.SerializeObject(profilesdata, Formatting.Indented);
+            string timestamp = DateTime.Now.ToString("yyyyMMddHHmmss");
+            string fileName = $"profilesdata_{timestamp}.txt";
+            File.WriteAllText(fileName, json);
+            string currentDirectory = Directory.GetCurrentDirectory();
+            string parentDirectory = Directory.GetParent(currentDirectory).Parent?.Parent?.FullName;
+            string downloadPath = Path.Combine(parentDirectory, fileName);
+            File.Copy(fileName, downloadPath, true);
+            Console.WriteLine("Downloaded JSON file to: " + downloadPath);
+        }
+        static async Task ScrappedNetworkProfile(IWebDriver driver, string url)
+        {
+            driver.Navigate().GoToUrl(url);
             List<ProfileData> profiles = new List<ProfileData>();
+            System.Threading.Thread.Sleep(3000);
             int profileIndex = 0;
             bool hasMoreProfiles = true;
 
             while (hasMoreProfiles)
             {
+
                 System.Threading.Thread.Sleep(2000);
                 var profileElements = driver.FindElements(By.CssSelector(".mn-connection-card__occupation.t-14.t-black--light.t-normal"));
 
@@ -61,36 +154,29 @@ namespace Open_for_work_scrapping
                     profileData.ProfilePicUrl = FindProfilePictureUrl(driver);
                     profileData.BackgroundCoverImageUrl = FindBackgroundCoverImageUrl(driver);
                     profileData.FullName = FindElementText(driver, By.CssSelector(".text-heading-xlarge.inline.t-24.v-align-middle.break-words"));
-                    profileData.FirstName = ExtractFirstName(profileData.FullName);
-                    profileData.MiddleName = ExtractMiddleName(profileData.FullName);
-                    profileData.LastName = ExtractLastName(profileData.FullName);
                     profileData.Headline = FindElementText(driver, By.CssSelector(".text-body-medium.break-words"));
                     profileData.FullAddress = FindElementText(driver, By.CssSelector(".text-body-small.inline.t-black--light.break-words"));
                     profiles.Add(profileData);
                     Console.WriteLine("Profile Picture URL: " + profileData.ProfilePicUrl);
                     Console.WriteLine("Background Cover Image URL: " + profileData.BackgroundCoverImageUrl);
                     Console.WriteLine("Full Name: " + profileData.FullName);
-                    Console.WriteLine("First Name: " + profileData.FirstName);
-                    Console.WriteLine("Middle Name: " + profileData.MiddleName);
-                    Console.WriteLine("Last Name: " + profileData.LastName);
                     Console.WriteLine("Headline: " + profileData.Headline);
                     Console.WriteLine("Full Address: " + profileData.FullAddress);
+                    Console.WriteLine();
                     driver.Navigate().Back();
                     profileIndex++;
                 }
             }
-
             string json = JsonConvert.SerializeObject(profiles, Formatting.Indented);
-            File.WriteAllText("profiles.txt", json);            
+            string timestamp = DateTime.Now.ToString("yyyyMMddHHmmss");
+            string fileName = $"profiles_{timestamp}.txt";
+            File.WriteAllText(fileName, json);
             string currentDirectory = Directory.GetCurrentDirectory();
-            string parentDirectory = Directory.GetParent(currentDirectory).Parent?.Parent?.Parent?.FullName;           
-            string downloadPath = Path.Combine(parentDirectory, "profiles.txt");
-            File.Copy("profiles.txt", downloadPath, true);
+            string parentDirectory = Directory.GetParent(currentDirectory).Parent?.Parent?.FullName;
+            string downloadPath = Path.Combine(parentDirectory, fileName);
+            File.Copy(fileName, downloadPath, true);
             Console.WriteLine("Downloaded JSON file to: " + downloadPath);
-
-            driver.Close();
-            driver.Quit();
-        }
+        }        
         static string FindProfilePictureUrl(IWebDriver driver)
         {
             try
@@ -109,7 +195,7 @@ namespace Open_for_work_scrapping
         {
             try
             {
-                IWebElement backgroundCoverImageElement = driver.FindElement(By.CssSelector(".profile-background-image__image.relative.full-width.full-height"));
+                IWebElement backgroundCoverImageElement = driver.FindElement(By.CssSelector(".profile-background-image.profile-background-image--default"));
                 return backgroundCoverImageElement.GetAttribute("src");
             }
             catch (NoSuchElementException)
@@ -118,55 +204,19 @@ namespace Open_for_work_scrapping
                 return null!;
             }
         }
-
-        static string FindElementText(IWebDriver driver, By locator)
+        static string FindElementText(IWebDriver driver, By by)
         {
             try
             {
-                IWebElement element = driver.FindElement(locator);
-                return element.Text;
+                return driver.FindElement(by).Text;
             }
-            catch (NoSuchElementException)
+            catch
             {
-                Console.WriteLine("Element not found: " + locator.ToString());
-                return null!;
+                return "Element not found.";
             }
         }
 
-        static string ExtractFirstName(string fullName)
-        {
-            if (string.IsNullOrEmpty(fullName))
-                return string.Empty;
 
-            string[] nameParts = fullName.Split(' ');
-            return nameParts[0];
-        }
-
-        static string ExtractMiddleName(string fullName)
-        {
-            if (string.IsNullOrEmpty(fullName))
-                return string.Empty;
-
-            string[] nameParts = fullName.Split(' ');
-            if (nameParts.Length > 2)
-                return nameParts[1];
-
-            return string.Empty;
-        }
-
-        static string ExtractLastName(string fullName)
-        {
-            if (string.IsNullOrEmpty(fullName))
-                return string.Empty;
-
-            string[] nameParts = fullName.Split(' ');
-            if (nameParts.Length > 1)
-                return nameParts[nameParts.Length - 1];
-
-            return string.Empty;
-        }
-
-        
     }
 
     class ProfileData
@@ -174,13 +224,9 @@ namespace Open_for_work_scrapping
         public string ProfilePicUrl { get; set; } = string.Empty;
         public string BackgroundCoverImageUrl { get; set; } = string.Empty;
         public string FullName { get; set; } = string.Empty;
-        public string FirstName { get; set; } = string.Empty;
-        public string MiddleName { get; set; } = string.Empty;
-        public string LastName { get; set; } = string.Empty;
         public string Headline { get; set; } = string.Empty;
         public string FullAddress { get; set; } = string.Empty;
-       
-    }
 
-   
+    }
 }
+
